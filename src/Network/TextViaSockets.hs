@@ -46,10 +46,14 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Control.Exception.Base
 import System.IO.Error
+import Data.Foldable
 
 -- | A connection for sending and receiving @Text@ lines.    
 data Connection = Connection
-    { connSock :: Socket
+    { -- | Socket on which to send and receive data.
+      connSock :: Socket
+      -- | Server socket. It exists only if the connection was started on server mode.
+    , serverSocket :: Maybe Socket
     , linesTQ :: TQueue Text
     , socketReaderTid :: ThreadId
     } deriving (Eq)
@@ -73,7 +77,7 @@ acceptOnSocket :: Socket -> IO Connection
 acceptOnSocket sock = do
     listen sock 1 -- Only one queued connection.
     (conn, _) <- accept sock 
-    mkConnection conn
+    mkConnection conn (Just sock)
 
 -- | Get a free socket from the operating system.
 getFreeSocket :: IO Socket
@@ -92,7 +96,7 @@ connectTo host sn = withSocketsDo $ do
     let serveraddr = head addrinfos
     sock <- socket (addrFamily serveraddr) Stream defaultProtocol
     connect sock (addrAddress serveraddr)
-    mkConnection sock
+    mkConnection sock Nothing
 
 -- | Like connect to, but if the server is not available it retries a number of
 -- times before raising an exception.
@@ -107,13 +111,13 @@ connectToWithRetry host sn = gConnectToWithRetry (3 :: Int)
                     threadDelay (10^6)
                     gConnectToWithRetry (n-1)
 
-mkConnection :: Socket -> IO Connection
-mkConnection sock = do
+mkConnection :: Socket -> Maybe Socket -> IO Connection
+mkConnection sock mServerSock = do
     -- Create an empty queue of lines.
     lTQ <- newTQueueIO    
     -- Spawn the reader process.
     rTid <- forkIO $ reader sock lTQ [] (streamDecodeUtf8With lenientDecode) 
-    return $ Connection sock lTQ rTid
+    return $ Connection sock mServerSock lTQ rTid
     where
       -- | Reads byte-strings from the given socket, decodes the byte-string
       -- into a @Text@ value, and as soon as a new line is found in the text,
@@ -177,6 +181,7 @@ putLineTo Connection {connSock} text = do
 
 -- | Close the connection.
 close :: Connection -> IO ()
-close Connection{connSock, socketReaderTid} = do
+close Connection{connSock, serverSocket, socketReaderTid} = do
     Socket.close connSock
+    traverse_ Socket.close serverSocket
     killThread socketReaderTid
