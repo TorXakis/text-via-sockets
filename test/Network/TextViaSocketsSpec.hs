@@ -127,3 +127,22 @@ spec = parallel $ do
             (cliConn, svrConn, _, _) <- getCliSvrConns
             close cliConn
             close svrConn
+        it "The same port can be used after a connection is closed" $ do
+            let simpleTest = do
+                    a <- async $ do
+                        conn <- acceptOn 9090
+                        line <- getLineFrom conn
+                        close conn
+                        return line
+                    conn <- connectTo "localhost" "9090"
+                    putLineTo conn "Hello"
+                    close conn
+                    line <- wait a
+                    line `shouldBe` "Hello"
+            simpleTest -- Use the port the first time
+            _ <- timeout -- We need some delay to make sure the port gets closed.
+            simpleTest -- And use it a second time
+
+            
+            
+
