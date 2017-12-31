@@ -27,7 +27,7 @@ module Network.TextViaSockets
     , getLineFrom
     , putLineTo
     -- * Closing the connection
-    , close   
+    , close
     ) where
 
 import Network.Socket hiding (recv, close, send)
@@ -48,7 +48,7 @@ import Control.Exception.Base
 import System.IO.Error
 import Data.Foldable
 
--- | A connection for sending and receiving @Text@ lines.    
+-- | A connection for sending and receiving @Text@ lines.
 data Connection = Connection
     { -- | Socket on which to send and receive data.
       connSock :: Socket
@@ -64,19 +64,32 @@ instance Show Connection where
 
 -- | Accept byte-streams by serving on the given port number. This function
 -- will block until a client connects to the server.
--- 
+--
 acceptOn :: PortNumber -> IO Connection
-acceptOn p = do
-    sock <- socket AF_INET Stream 0
-    setSocketOption sock ReuseAddr 1
-    bind sock (SockAddrInet p iNADDR_ANY)
-    acceptOnSocket sock
+acceptOn p = acceptOnWithRetry (3 :: Int)
+    where
+      acceptOnWithRetry 0 = fail $ "Could not server on " ++ show p
+      acceptOnWithRetry n =
+          tryToAcceptOn `catch` handler
+          where
+            handler :: IOException -> IO Connection
+            handler ex = do
+                putStrLn $ "TextViaSockets: Could not connect to: " ++ show p
+                    ++ " - " ++ show ex
+                threadDelay (10^6)
+                acceptOnWithRetry (n - 1)
+
+      tryToAcceptOn = do
+          sock <- socket AF_INET Stream 0
+          setSocketOption sock ReuseAddr 1
+          bind sock (SockAddrInet p iNADDR_ANY)
+          acceptOnSocket sock
 
 -- | Like @acceptOn@ but it takes a bound socket as parameter.
 acceptOnSocket :: Socket -> IO Connection
 acceptOnSocket sock = do
     listen sock 1 -- Only one queued connection.
-    (conn, _) <- accept sock 
+    (conn, _) <- accept sock
     mkConnection conn (Just sock)
 
 -- | Get a free socket from the operating system.
@@ -87,36 +100,39 @@ getFreeSocket = do
     bind sock (SockAddrInet aNY_PORT iNADDR_ANY)
     return sock
 
--- | Connect to the given host and service name (usually a port number). 
+-- | Connect to the given host and service name (usually a port number).
 --
 connectTo :: HostName -> ServiceName -> IO Connection
-connectTo host sn = withSocketsDo $ do
-    -- Open the socket.
-    addrinfos <- getAddrInfo Nothing (Just host) (Just sn)
-    let serveraddr = head addrinfos
-    sock <- socket (addrFamily serveraddr) Stream defaultProtocol
-    connect sock (addrAddress serveraddr)
-    mkConnection sock Nothing
+connectTo = connectToWithRetry 5
 
 -- | Like connect to, but if the server is not available it retries a number of
 -- times before raising an exception.
-connectToWithRetry :: HostName -> ServiceName -> IO Connection
-connectToWithRetry host sn = gConnectToWithRetry (3 :: Int)
+connectToWithRetry :: Int -> HostName -> ServiceName -> IO Connection
+connectToWithRetry n host sn = gConnectToWithRetry n
     where gConnectToWithRetry 0 = fail $ "Could not connect to "
                                        ++ show host ++ ":" ++ show sn
-          gConnectToWithRetry n = connectTo host sn `catch` handler
-              where 
+          gConnectToWithRetry m = tryConnectTo `catch` handler
+              where
                 handler :: IOException -> IO Connection
                 handler _ = do
                     threadDelay (10^6)
-                    gConnectToWithRetry (n-1)
+                    gConnectToWithRetry (m-1)
+                tryConnectTo :: IO Connection
+                tryConnectTo = withSocketsDo $ do
+                    -- Open the socket.
+                    addrinfos <- getAddrInfo Nothing (Just host) (Just sn)
+                    let svrAddr = head addrinfos
+                    sock <- socket (addrFamily svrAddr) Stream defaultProtocol
+                    connect sock (addrAddress svrAddr)
+                    mkConnection sock Nothing
+
 
 mkConnection :: Socket -> Maybe Socket -> IO Connection
 mkConnection sock mServerSock = do
     -- Create an empty queue of lines.
-    lTQ <- newTQueueIO    
+    lTQ <- newTQueueIO
     -- Spawn the reader process.
-    rTid <- forkIO $ reader sock lTQ [] (streamDecodeUtf8With lenientDecode) 
+    rTid <- forkIO $ reader sock lTQ [] (streamDecodeUtf8With lenientDecode)
     return $ Connection sock mServerSock lTQ rTid
     where
       -- | Reads byte-strings from the given socket, decodes the byte-string

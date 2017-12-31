@@ -91,7 +91,7 @@ getCliSvrConns = do
     sock <- getFreeSocket
     a <-  async $ acceptOnSocket sock
     pnum <-  socketPort sock
-    cliConn <- connectToWithRetry "localhost" (show pnum)
+    cliConn <- connectTo "localhost" (show pnum)
     svrConn <- wait a
     return (cliConn, svrConn, aCliTV, aSvrTV)
 
@@ -140,7 +140,6 @@ spec = parallel $ do
                     line <- wait a
                     line `shouldBe` "Hello"
             simpleTest -- Use the port the first time
-            _ <- timeout -- We need some delay to make sure the port gets closed.
             simpleTest -- And use it a second time
 
             
