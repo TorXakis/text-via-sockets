@@ -1,2 +1,2 @@
 # text-via-sockets
-Send Text lines using sockets
+Send and receive `Text` lines using sockets. 
