@@ -1,6 +1,18 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
--- | Simple line-based text communication via sockets.
+
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Network.TextViaSockets
+-- Copyright   :  (c) Damian Nadales 2017
+-- License     :  BSD3 (see the file LICENSE)
+--
+-- Maintainer  :  Damian Nadales <damian.nadales@gmail.com>
+-- Stability   :  provisional
+-- Portability :  non-portable (requires concurrency)
+--
+-- Simple line-based text communication via sockets.
+-----------------------------------------------------------------------------
 
 module Network.TextViaSockets
     ( Connection ()
@@ -40,8 +52,12 @@ data Connection = Connection
     { connSock :: Socket
     , linesTQ :: TQueue Text
     , socketReaderTid :: ThreadId
-    }
-    
+    } deriving (Eq)
+
+instance Show Connection where
+    show Connection {connSock} =
+        "Connection: socket = " ++ show connSock
+
 -- | Accept byte-streams by serving on the given port number. This function
 -- will block until a client connects to the server.
 -- 
