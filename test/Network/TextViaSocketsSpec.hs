@@ -134,7 +134,7 @@ spec = parallel $ do
                         line <- getLineFrom conn
                         close conn
                         return line
-                    conn <- connectTo "localhost" "9090"
+                    conn <- connectTo "127.0.0.1" "9090"
                     putLineTo conn "Hello"
                     close conn
                     line <- wait a
