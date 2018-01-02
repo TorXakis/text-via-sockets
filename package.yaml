@@ -25,28 +25,46 @@ dependencies:
 - text
 - bytestring
 - stm
+- NoTrace
+- retry
+- exceptions
 
 library:
   source-dirs: src
 
 ghc-options:
   - -O
+  - -Werror
+  - -Wall
+
+flags:
+  debug:
+    description: Enable debug
+    manual: True
+    default: False
+
+when:
+  - condition: flag(debug)
+    cpp-options:  -DDEBUG
 
 tests:
   text-via-sockets-test:
     main:                Spec.hs
-    source-dirs:         test
+    source-dirs:
+      - test
+      - src
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
     - -Werror
     - -Wall
-    - -O    
+    - -O
+
     dependencies:
     - hspec
     - QuickCheck
     - quickcheck-text
     - async
-    
+
     - text-via-sockets

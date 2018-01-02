@@ -1,5 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -18,7 +19,6 @@ module Network.TextViaSockets
     ( Connection ()
     -- * Connect to a server
     , connectTo
-    , connectToWithRetry
     -- * Start a server
     , acceptOn
     , acceptOnSocket
@@ -45,8 +45,16 @@ import Data.Text.Encoding.Error
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import Control.Exception.Base
-import System.IO.Error
 import Data.Foldable
+import Control.Retry
+import Control.Monad.Catch (Handler)
+import Data.Monoid
+
+#ifdef DEBUG
+import Debug.Trace
+#else
+import Debug.NoTrace
+#endif
 
 -- | A connection for sending and receiving @Text@ lines.
 data Connection = Connection
@@ -62,39 +70,57 @@ instance Show Connection where
     show Connection {connSock} =
         "Connection: socket = " ++ show connSock
 
+-- | We always retry an IO Exception.
+retryIOException :: IOException -> IO Bool
+retryIOException _ = return True
+
+-- | How to report an IOException.
+reportIOException :: Bool        -- ^ Is the action being retried or are we giving up?
+                  -> IOException -- ^ Exception that was raised.
+                  -> RetryStatus -- ^ Contains the number of iterations, delay so far, and last delay.
+                  -> IO ()
+reportIOException _ ex rs = do
+        traceIO $ "Got exception: " ++ show ex
+        traceIO $ "Current delay: " ++ show (rsPreviousDelay rs)
+        traceIO $ "Total delay: " ++ show (rsCumulativeDelay rs)
+
+-- | The handler for IO exceptions when connecting to sockets.
+ioExceptionHandler :: RetryStatus -> Handler IO Bool
+ioExceptionHandler = logRetries retryIOException reportIOException
+
+-- | Default retry policy for retrying connections.
+connectRetryPolicy :: RetryPolicyM IO
+connectRetryPolicy = exponentialBackoff 50 <> limitRetries 5
+
+-- | Retry to connect
+retryCnect :: IO a -> IO a
+retryCnect act = recovering connectRetryPolicy [ioExceptionHandler] (\_ -> act)
+
 -- | Accept byte-streams by serving on the given port number. This function
 -- will block until a client connects to the server.
 --
 acceptOn :: PortNumber -> IO Connection
-acceptOn p = acceptOnWithRetry (3 :: Int)
-    where
-      acceptOnWithRetry 0 = fail $ "Could not server on " ++ show p
-      acceptOnWithRetry n =
-          tryToAcceptOn `catch` handler
-          where
-            handler :: IOException -> IO Connection
-            handler ex = do
-                putStrLn $ "TextViaSockets: Could not connect to: " ++ show p
-                    ++ " - " ++ show ex
-                threadDelay (10^6)
-                acceptOnWithRetry (n - 1)
-
-      tryToAcceptOn = do
-          sock <- socket AF_INET Stream 0
-          setSocketOption sock ReuseAddr 1
-          bind sock (SockAddrInet p iNADDR_ANY)
-          acceptOnSocket sock
+acceptOn p = retryCnect $ do
+    traceIO $ ">>> Accepting a connection on " ++ show p
+    sock <- socket AF_INET Stream 0
+    setSocketOption sock ReuseAddr 1
+    bind sock (SockAddrInet p iNADDR_ANY)
+    acceptOnSocket sock
 
 -- | Like @acceptOn@ but it takes a bound socket as parameter.
 acceptOnSocket :: Socket -> IO Connection
-acceptOnSocket sock = do
+acceptOnSocket sock = retryCnect $ do
     listen sock 1 -- Only one queued connection.
     (conn, _) <- accept sock
+#ifdef DEBUG
+    pn <- socketPort conn
+    traceIO $ "<<< Accepted a connection on " ++ show pn
+#endif
     mkConnection conn (Just sock)
 
 -- | Get a free socket from the operating system.
 getFreeSocket :: IO Socket
-getFreeSocket = do
+getFreeSocket = retryCnect $ do
     sock <- socket AF_INET Stream 0
     setSocketOption sock ReuseAddr 1
     bind sock (SockAddrInet aNY_PORT iNADDR_ANY)
@@ -103,49 +129,34 @@ getFreeSocket = do
 -- | Connect to the given host and service name (usually a port number).
 --
 connectTo :: HostName -> ServiceName -> IO Connection
-connectTo = connectToWithRetry 5
-
--- | Like connect to, but if the server is not available it retries a number of
--- times before raising an exception.
-connectToWithRetry :: Int -> HostName -> ServiceName -> IO Connection
-connectToWithRetry n host sn = gConnectToWithRetry n
-    where gConnectToWithRetry 0 = fail $ "TextViaSockets: Could not connect to "
-                                       ++ show host ++ ":" ++ show sn
-          gConnectToWithRetry m = tryConnectTo `catch` handler
-              where
-                handler :: IOException -> IO Connection
-                handler _ = do
-                    threadDelay (10^6)
-                    gConnectToWithRetry (m-1)
-                tryConnectTo :: IO Connection
-                tryConnectTo = withSocketsDo $ do
-                    -- Open the socket.
-                    addrinfos <- getAddrInfo Nothing (Just host) (Just sn)
-                    let svrAddr = head addrinfos
-                    sock <- socket (addrFamily svrAddr) Stream defaultProtocol
-                    connect sock (addrAddress svrAddr)
-                    mkConnection sock Nothing
-
+connectTo hn sn = withSocketsDo $ retryCnect $ do
+    -- Open the socket.
+    traceIO $ ">>> Connecting to " ++ show hn ++ " on " ++ show sn
+    addrinfos <- getAddrInfo Nothing (Just hn) (Just sn)
+    let svrAddr = head addrinfos
+    sock <- socket (addrFamily svrAddr) Stream defaultProtocol
+    connect sock (addrAddress svrAddr)
+    traceIO $ "<<< Connected to " ++ show hn ++ " on " ++ show sn
+    mkConnection sock Nothing
 
 mkConnection :: Socket -> Maybe Socket -> IO Connection
 mkConnection sock mServerSock = do
     -- Create an empty queue of lines.
     lTQ <- newTQueueIO
     -- Spawn the reader process.
-    rTid <- forkIO $ reader sock lTQ [] (streamDecodeUtf8With lenientDecode)
+    rTid <- forkIO $ reader lTQ [] (streamDecodeUtf8With lenientDecode)
     return $ Connection sock mServerSock lTQ rTid
     where
       -- | Reads byte-strings from the given socket, decodes the byte-string
       -- into a @Text@ value, and as soon as a new line is found in the text,
       -- the line is placed in the given @TQueue@.
-      reader :: Socket      -- ^ Socket on which the byte-strings will be received.
-             -> TQueue Text -- ^ Transactional queue where to put the text
+      reader :: TQueue Text -- ^ Transactional queue where to put the text
                             -- lines that are received.
              -> [Text]      -- ^ Text fragments that were received so far,
                             -- where no new lines are found
              -> (ByteString -> Decoding) -- ^ Decoding function. See @Data.Text.Encoding@
              -> IO ()
-      reader sock lTQ acc f = doRead acc f `catch` handler
+      reader lTQ acc f = doRead acc f `catch` handler
           where doRead acc' f' = do
                     msg <- recv sock 1024
                     -- Receiving a null byte-string probably means that the
@@ -187,17 +198,31 @@ mkConnection sock mServerSock = do
 -- connection to the server is closed, so users of this function should check
 -- for this.
 getLineFrom :: Connection -> IO Text
-getLineFrom Connection {linesTQ} = atomically $ readTQueue linesTQ
+#ifdef DEBUG
+getLineFrom Connection {connSock, linesTQ} = do
+#else
+getLineFrom Connection {linesTQ} = do
+#endif
+    line <- atomically $ readTQueue linesTQ
+#ifdef DEBUG
+    pn <- socketPort connSock
+    traceIO $ "Got line" ++ show line ++ " on " ++ show pn
+#endif
+    return line
 
 -- | Put a text line onto the given connection.
 putLineTo :: Connection -> Text -> IO ()
 putLineTo Connection {connSock} text = do
     let textEol = T.snoc text '\n'
+#ifdef DEBUG
+    pn <- socketPort connSock
+    traceIO $ ">>> Putting line " ++ show textEol ++ " on " ++ show pn
+#endif
     sendAll connSock (encodeUtf8 textEol)
 
 -- | Close the connection.
 close :: Connection -> IO ()
-close Connection{connSock, serverSocket, socketReaderTid} = do
+close Connection{connSock, serverSocket, socketReaderTid} = retryCnect $ do
     Socket.close connSock
     traverse_ Socket.close serverSocket
     killThread socketReaderTid

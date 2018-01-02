@@ -34,7 +34,6 @@ sndRcvProc conn howMany svrMsgs aTV =
           a <- async $ sendMsgs conn svrMsgs
           res <- receiveMsgs conn howMany
           wait a
-          close conn
           return res
     -- In case of an IOException we have to cancel the process that is waiting
     -- for input.
@@ -63,6 +62,13 @@ checkMessages (Right (Right msgs)) expected =
         run $ print expected
         assert False
 
+waitCatchTimeout :: Async a -> IO (Either SomeException a)
+waitCatchTimeout act = do
+    eEres <- timeout `race` waitCatch act
+    case eEres of
+        Left Timeout -> throwIO $ userError "Timeout"
+        Right eRes -> return eRes
+
 allMessagesReceived :: [PrintableString] -- ^ Messages to be sent to the client.
                     -> [PrintableString] -- ^ Messages to be sent to the server.
                     -> Property
@@ -75,8 +81,11 @@ allMessagesReceived strsCli strsSvr = monadicIO $ do
     run $ putMVar aCliTV aCli
     run $ putMVar aSvrTV aSvr
     -- Wait for the results
-    resCli <- run $ waitCatch aCli
-    resSvr <- run $ waitCatch aSvr
+    resCli <- run $ waitCatchTimeout aCli
+    resSvr <- run $ waitCatchTimeout aSvr
+    -- Close the connections
+    run $ close cliConn
+    run $ close svrConn
     -- Check the results
     checkMessages resCli msgsCli
     checkMessages resSvr msgsSvr
@@ -137,11 +146,7 @@ spec = parallel $ do
                     cliConn <- connectTo "127.0.0.1" "9090"
                     putLineTo cliConn "Hello"
                     line <- wait a
-                    close cliConn                    
+                    close cliConn
                     line `shouldBe` "Hello"
             simpleTest -- Use the port the first time
             simpleTest -- And use it a second time
-
-            
-            
-
