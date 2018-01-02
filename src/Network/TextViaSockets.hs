@@ -51,11 +51,11 @@ import Data.Foldable
 -- | A connection for sending and receiving @Text@ lines.
 data Connection = Connection
     { -- | Socket on which to send and receive data.
-      connSock :: Socket
+      connSock :: ! Socket
       -- | Server socket. It exists only if the connection was started on server mode.
-    , serverSocket :: Maybe Socket
-    , linesTQ :: TQueue Text
-    , socketReaderTid :: ThreadId
+    , serverSocket :: !(Maybe Socket)
+    , linesTQ :: !(TQueue Text)
+    , socketReaderTid :: !ThreadId
     } deriving (Eq)
 
 instance Show Connection where
@@ -109,7 +109,7 @@ connectTo = connectToWithRetry 5
 -- times before raising an exception.
 connectToWithRetry :: Int -> HostName -> ServiceName -> IO Connection
 connectToWithRetry n host sn = gConnectToWithRetry n
-    where gConnectToWithRetry 0 = fail $ "Could not connect to "
+    where gConnectToWithRetry 0 = fail $ "TextViaSockets: Could not connect to "
                                        ++ show host ++ ":" ++ show sn
           gConnectToWithRetry m = tryConnectTo `catch` handler
               where

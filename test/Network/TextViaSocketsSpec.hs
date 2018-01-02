@@ -67,7 +67,7 @@ allMessagesReceived :: [PrintableString] -- ^ Messages to be sent to the client.
                     -> [PrintableString] -- ^ Messages to be sent to the server.
                     -> Property
 allMessagesReceived strsCli strsSvr = monadicIO $ do
-    (cliConn, svrConn, aCliTV, aSvrTV) <- run $ getCliSvrConns
+    (cliConn, svrConn, aCliTV, aSvrTV) <- run getCliSvrConns
     -- Start the sending and receiving processes.
     aCli <- run $ async $ sndRcvProc cliConn (length msgsCli) msgsSvr aSvrTV
     aSvr <- run $ async $ sndRcvProc svrConn (length msgsSvr) msgsCli aCliTV
@@ -91,7 +91,7 @@ getCliSvrConns = do
     sock <- getFreeSocket
     a <-  async $ acceptOnSocket sock
     pnum <-  socketPort sock
-    cliConn <- connectTo "localhost" (show pnum)
+    cliConn <- connectTo "127.0.0.1" (show pnum)
     svrConn <- wait a
     return (cliConn, svrConn, aCliTV, aSvrTV)
 
