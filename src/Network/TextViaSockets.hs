@@ -114,11 +114,11 @@ acceptOnSocket :: Socket -> IO Connection
 acceptOnSocket sock = retryCnect $ do
     listen sock 1 -- Only one queued connection.
     traceIO $ "TextViaSockets: Accepting connections on socket "
-        ++ "(" ++ show sock ++ ")"
+        ++ " (" ++ show sock ++ ")"
     (conn, _) <- accept sock
     pn <- socketPort conn
     traceIO $ "TextViaSockets: Accepted a connection on " ++ show pn
-        ++ "(" ++ show conn ++ ")"
+        ++ " (" ++ show conn ++ ")"
     mkConnection conn (Just sock)
 
 -- | Get a free socket from the operating system.
@@ -141,7 +141,7 @@ connectTo hn sn = withSocketsDo $ retryCnect $ do
     connect sock (addrAddress svrAddr)
     pn <- socketPort sock
     traceIO $ "TextViaSockets: Connected to " ++ show hn ++ " on " ++ show pn
-        ++ "(" ++ show sock ++ ")"
+        ++ " (" ++ show sock ++ ")"
     mkConnection sock Nothing
 
 mkConnection :: Socket -> Maybe Socket -> IO Connection
@@ -221,20 +221,25 @@ receiveMsgs conn howMany = replicateM howMany (getLineFrom conn)
 
 -- | Close the connection.
 close :: Connection -> IO ()
-close Connection{connSock, serverSock, socketReaderTid} = do
-    pn <- socketPort connSock
-    traceIO $ "TextViaSockets: Closing connection on " ++ show pn
-            ++ "(" ++ show connSock ++ ")"
-    closeIfOpen connSock
-    traceIO $ "TextViaSockets: Closing server socket " ++ show serverSock
-    traverse_ closeIfOpen serverSock
-    killThread socketReaderTid
-    traceIO $ "TextViaSockets: Connection closed"
+close Connection{connSock, serverSock, socketReaderTid} = tryClose `catch` handler
     where
+      tryClose = do
+          pn <- socketPort connSock
+          traceIO $ "TextViaSockets: Closing connection on " ++ show pn
+              ++ " (" ++ show connSock ++ ")"
+          closeIfOpen connSock
+          traceIO $ "TextViaSockets: Closing server socket " ++ show serverSock
+          traverse_ closeIfOpen serverSock
+          killThread socketReaderTid
+          traceIO $ "TextViaSockets: Connection closed"
       closeIfOpen sock = do
           let MkSocket _ _ _ _ stMV = sock
           st <- readMVar stMV
           case st of
               Closed -> return ()
               _ -> Socket.close sock
+      handler :: IOException -> IO ()
+      handler ex = do
+          traceIO $ "TextViaSockets: exception while closing the socket"
+              ++ show ex
 
