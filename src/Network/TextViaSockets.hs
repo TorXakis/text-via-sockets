@@ -229,10 +229,7 @@ receiveMsgs conn howMany = replicateM howMany (getLineFrom conn)
 close :: Connection -> IO ()
 close Connection{connSock, serverSock, socketReaderTid} = tryClose `catch` handler
     where
-      tryClose = do
-          pn <- socketPort connSock
-          traceIO $ "TextViaSockets: Closing connection on " ++ show pn
-              ++ " (" ++ show connSock ++ ")"
+      tryClose = do          
           closeIfOpen connSock
           traceIO $ "TextViaSockets: Closing server socket " ++ show serverSock
           traverse_ closeIfOpen serverSock
@@ -243,7 +240,11 @@ close Connection{connSock, serverSock, socketReaderTid} = tryClose `catch` handl
           st <- readMVar stMV
           case st of
               Closed -> return ()
-              _ -> Socket.close sock
+              _ -> do
+                  pn <- socketPort sock
+                  traceIO $ "TextViaSockets: Closing connection on " ++ show pn
+                      ++ " (" ++ show sock ++ ")"
+                  Socket.close sock
       handler :: IOException -> IO ()
       handler ex = do
           traceIO $ "TextViaSockets: exception while closing the socket: "

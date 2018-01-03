@@ -74,7 +74,7 @@ allMessagesReceived strsCli strsSvr = monadicIO $ do
     -- Put the async handles in the MVar's
     debug "Putting the async handles in the MVar's."
     run $ putMVar aCliTV aCli
-    run $ putMVar aSvrTV aSvr    
+    run $ putMVar aSvrTV aSvr
     -- Wait for the results
     debug "Waiting for the results."
     resCli <- run $ waitCatch aCli
@@ -89,7 +89,7 @@ allMessagesReceived strsCli strsSvr = monadicIO $ do
     checkMessages resSvr msgsSvr
     where
       strsCliF = filter ((/= "\n") . getPrintableString) strsCli
-      strsSvrF = filter ((/= "\n") . getPrintableString) strsSvr      
+      strsSvrF = filter ((/= "\n") . getPrintableString) strsSvr
       msgsCli = map (T.pack . getPrintableString) strsCliF
       msgsSvr = map (T.pack . getPrintableString) strsSvrF
       debug = run . traceIO . ("TextViaSocketsSpec: allMessagesReceived: "++)
@@ -151,3 +151,9 @@ spec = do
                     line `shouldBe` "Hello"
             simpleTest -- Use the port the first time
             simpleTest -- And use it a second time
+        it "Closing a connection two times should not fail" $ do
+            (cliConn, svrConn, _, _) <- getCliSvrConns
+            close cliConn
+            close svrConn
+            close svrConn
+            close cliConn
