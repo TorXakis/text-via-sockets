@@ -114,7 +114,7 @@ acceptOnSocket :: Socket -> IO Connection
 acceptOnSocket sock = retryCnect $ do
     listen sock 1 -- Only one queued connection.
     traceIO $ "TextViaSockets: Accepting connections on socket "
-        ++ " (" ++ show sock ++ ")"
+        ++ show sock
     (conn, _) <- accept sock
     pn <- socketPort conn
     traceIO $ "TextViaSockets: Accepted a connection on " ++ show pn
@@ -240,6 +240,7 @@ close Connection{connSock, serverSock, socketReaderTid} = tryClose `catch` handl
               _ -> Socket.close sock
       handler :: IOException -> IO ()
       handler ex = do
-          traceIO $ "TextViaSockets: exception while closing the socket"
+          traceIO $ "TextViaSockets: exception while closing the socket: "
               ++ show ex
+          throwIO $ ex
 
