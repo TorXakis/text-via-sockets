@@ -22,7 +22,7 @@ sendStrLines strs = withSocketsDo $ benchTimeout $ do
     sock <- Network.listenOn (Network.PortNumber 8888)
     aSvr <- async $ Network.accept sock
     cliH <- Network.connectTo "localhost" (Network.PortNumber 8888)
-    (svrH, _, _) <- wait $ aSvr
+    (svrH, _, _) <- wait aSvr
     -- Send all the lines
     aSnd <- async $ traverse_ (hPutStrLn svrH) strs
     -- Receive all the lines
@@ -41,7 +41,7 @@ benchTimeout :: IO () -> IO ()
 benchTimeout = void . timeout (2 * 10 ^ (6 :: Int))    
     
 sendTLines :: [Text] -> IO ()
-sendTLines tLines = void $ timeout (2 * 10 ^ (6 :: Int)) $ do
+sendTLines tLines = benchTimeout $ do
     sock <- getFreeSocket
     acceptAsync <- async $ acceptOnSocket sock
     pnum <-  socketPort sock

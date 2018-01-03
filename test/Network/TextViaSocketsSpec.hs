@@ -101,7 +101,7 @@ getCliSvrConns = do
     sock <- getFreeSocket
     a <-  async $ acceptOnSocket sock
     pnum <-  socketPort sock
-    cliConn <- connectTo "127.0.0.1" (show pnum)
+    cliConn <- connectTo "localhost" (show pnum)
     svrConn <- wait a
     return (cliConn, svrConn, aCliTV, aSvrTV)
 

@@ -134,15 +134,21 @@ getFreeSocket = retryCnect $ do
 connectTo :: HostName -> ServiceName -> IO Connection
 connectTo hn sn = withSocketsDo $ retryCnect $ do
     -- Open the socket.
-    traceIO $ "TextViaSockets: Connecting to " ++ show hn ++ " on " ++ show sn
-    addrinfos <- getAddrInfo Nothing (Just hn) (Just sn)
+    traceIO $ "TextViaSockets: Connecting to " ++ show hn' ++ " on " ++ show sn
+    addrinfos <- getAddrInfo Nothing (Just hn') (Just sn)
     let svrAddr = head addrinfos
     sock <- socket (addrFamily svrAddr) Stream defaultProtocol
     connect sock (addrAddress svrAddr)
     pn <- socketPort sock
-    traceIO $ "TextViaSockets: Connected to " ++ show hn ++ " on " ++ show pn
+    traceIO $ "TextViaSockets: Connected to " ++ show hn' ++ " on " ++ show pn
         ++ " (" ++ show sock ++ ")"
     mkConnection sock Nothing
+    where
+      -- Replace "localhost" to prevent errors on Windows systems where
+      -- "localhost" does not resolve to "127.0.0.1"
+      hn' = case hn of
+          "localhost" -> "127.0.0.1"
+          x -> x
 
 mkConnection :: Socket -> Maybe Socket -> IO Connection
 mkConnection sock mServerSock = do
@@ -231,7 +237,7 @@ close Connection{connSock, serverSock, socketReaderTid} = tryClose `catch` handl
           traceIO $ "TextViaSockets: Closing server socket " ++ show serverSock
           traverse_ closeIfOpen serverSock
           killThread socketReaderTid
-          traceIO $ "TextViaSockets: Connection closed"
+          traceIO "TextViaSockets: Connection closed"
       closeIfOpen sock = do
           let MkSocket _ _ _ _ stMV = sock
           st <- readMVar stMV
@@ -242,5 +248,5 @@ close Connection{connSock, serverSock, socketReaderTid} = tryClose `catch` handl
       handler ex = do
           traceIO $ "TextViaSockets: exception while closing the socket: "
               ++ show ex
-          throwIO $ ex
+          throwIO ex
 
