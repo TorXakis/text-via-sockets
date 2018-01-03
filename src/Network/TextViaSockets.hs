@@ -49,7 +49,7 @@ import Data.Foldable
 import Control.Retry
 import Control.Monad.Catch (Handler)
 import Data.Monoid
-
+    
 #ifdef DEBUG
 import Debug.Trace
 #else
@@ -61,7 +61,7 @@ data Connection = Connection
     { -- | Socket on which to send and receive data.
       connSock :: ! Socket
       -- | Server socket. It exists only if the connection was started on server mode.
-    , serverSocket :: !(Maybe Socket)
+    , serverSock :: !(Maybe Socket)
     , linesTQ :: !(TQueue Text)
     , socketReaderTid :: !ThreadId
     } deriving (Eq)
@@ -90,19 +90,19 @@ ioExceptionHandler = logRetries retryIOException reportIOException
 
 -- | Default retry policy for retrying connections.
 connectRetryPolicy :: RetryPolicyM IO
-connectRetryPolicy = exponentialBackoff 50 <> limitRetries 5
+connectRetryPolicy = exponentialBackoff 50 <> limitRetries 20
 
 -- | Retry to connect
 retryCnect :: IO a -> IO a
-retryCnect act = recovering connectRetryPolicy [ioExceptionHandler] (\_ -> act)
+retryCnect act = recovering connectRetryPolicy [ioExceptionHandler] (const act)
 
 -- | Accept byte-streams by serving on the given port number. This function
 -- will block until a client connects to the server.
 --
 acceptOn :: PortNumber -> IO Connection
 acceptOn p = retryCnect $ do
-    traceIO $ ">>> Accepting a connection on " ++ show p
     sock <- socket AF_INET Stream 0
+    traceIO $ "TextViaSockets: Accepting a connection on port " ++ show p
     setSocketOption sock ReuseAddr 1
     bind sock (SockAddrInet p iNADDR_ANY)
     acceptOnSocket sock
@@ -111,11 +111,12 @@ acceptOn p = retryCnect $ do
 acceptOnSocket :: Socket -> IO Connection
 acceptOnSocket sock = retryCnect $ do
     listen sock 1 -- Only one queued connection.
+    traceIO $ "TextViaSockets: Accepting connections on socket "
+        ++ "(" ++ show sock ++ ")"
     (conn, _) <- accept sock
-#ifdef DEBUG
     pn <- socketPort conn
-    traceIO $ "<<< Accepted a connection on " ++ show pn
-#endif
+    traceIO $ "TextViaSockets: Accepted a connection on " ++ show pn
+        ++ "(" ++ show conn ++ ")"
     mkConnection conn (Just sock)
 
 -- | Get a free socket from the operating system.
@@ -131,12 +132,14 @@ getFreeSocket = retryCnect $ do
 connectTo :: HostName -> ServiceName -> IO Connection
 connectTo hn sn = withSocketsDo $ retryCnect $ do
     -- Open the socket.
-    traceIO $ ">>> Connecting to " ++ show hn ++ " on " ++ show sn
+    traceIO $ "TextViaSockets: Connecting to " ++ show hn ++ " on " ++ show sn
     addrinfos <- getAddrInfo Nothing (Just hn) (Just sn)
     let svrAddr = head addrinfos
     sock <- socket (addrFamily svrAddr) Stream defaultProtocol
     connect sock (addrAddress svrAddr)
-    traceIO $ "<<< Connected to " ++ show hn ++ " on " ++ show sn
+    pn <- socketPort sock
+    traceIO $ "TextViaSockets: Connected to " ++ show hn ++ " on " ++ show pn
+        ++ "(" ++ show sock ++ ")"
     mkConnection sock Nothing
 
 mkConnection :: Socket -> Maybe Socket -> IO Connection
@@ -198,31 +201,29 @@ mkConnection sock mServerSock = do
 -- connection to the server is closed, so users of this function should check
 -- for this.
 getLineFrom :: Connection -> IO Text
-#ifdef DEBUG
-getLineFrom Connection {connSock, linesTQ} = do
-#else
-getLineFrom Connection {linesTQ} = do
-#endif
-    line <- atomically $ readTQueue linesTQ
-#ifdef DEBUG
-    pn <- socketPort connSock
-    traceIO $ "Got line" ++ show line ++ " on " ++ show pn
-#endif
-    return line
+getLineFrom Connection {linesTQ} = atomically $ readTQueue linesTQ
 
 -- | Put a text line onto the given connection.
 putLineTo :: Connection -> Text -> IO ()
 putLineTo Connection {connSock} text = do
     let textEol = T.snoc text '\n'
-#ifdef DEBUG
-    pn <- socketPort connSock
-    traceIO $ ">>> Putting line " ++ show textEol ++ " on " ++ show pn
-#endif
     sendAll connSock (encodeUtf8 textEol)
 
 -- | Close the connection.
 close :: Connection -> IO ()
-close Connection{connSock, serverSocket, socketReaderTid} = retryCnect $ do
-    Socket.close connSock
-    traverse_ Socket.close serverSocket
+close Connection{connSock, serverSock, socketReaderTid} = do
+    pn <- socketPort connSock
+    traceIO $ "TextViaSockets: Closing connection on " ++ show pn
+            ++ "(" ++ show connSock ++ ")"
+    closeIfOpen connSock
+    traceIO $ "TextViaSockets: Closing server socket " ++ show serverSock
+    traverse_ closeIfOpen serverSock
     killThread socketReaderTid
+    where
+      closeIfOpen sock = do
+          let MkSocket _ _ _ _ stMV = sock
+          st <- readMVar stMV
+          case st of
+              Closed -> return ()
+              _ -> Socket.close sock
+

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP #-}
 module Network.TextViaSocketsSpec where
 
 import           Control.Concurrent
@@ -16,6 +17,12 @@ import           Test.QuickCheck.Monadic
 import           Data.Text.Arbitrary ()
 
 import           Network.TextViaSockets
+
+#ifdef DEBUG
+import Debug.Trace
+#else
+import Debug.NoTrace
+#endif
 
 -- | Timeout token.
 data Timeout = Timeout
@@ -73,25 +80,32 @@ allMessagesReceived :: [PrintableString] -- ^ Messages to be sent to the client.
                     -> [PrintableString] -- ^ Messages to be sent to the server.
                     -> Property
 allMessagesReceived strsCli strsSvr = monadicIO $ do
+    debug "Acquiring connections."
     (cliConn, svrConn, aCliTV, aSvrTV) <- run getCliSvrConns
     -- Start the sending and receiving processes.
+    debug "Starting the sending and receiving processes."
     aCli <- run $ async $ sndRcvProc cliConn (length msgsCli) msgsSvr aSvrTV
     aSvr <- run $ async $ sndRcvProc svrConn (length msgsSvr) msgsCli aCliTV
     -- Put the async handles in the MVar's
+    debug "Putting the async handles in the MVar's."
     run $ putMVar aCliTV aCli
-    run $ putMVar aSvrTV aSvr
+    run $ putMVar aSvrTV aSvr    
     -- Wait for the results
+    debug "Waiting for the results."
     resCli <- run $ waitCatchTimeout aCli
     resSvr <- run $ waitCatchTimeout aSvr
     -- Close the connections
+    debug "Closing the connections."
     run $ close cliConn
     run $ close svrConn
     -- Check the results
+    debug "Checking the results."
     checkMessages resCli msgsCli
     checkMessages resSvr msgsSvr
     where
       msgsCli = map (T.pack . getPrintableString) strsCli
       msgsSvr = map (T.pack . getPrintableString) strsSvr
+      debug = run . traceIO . ("TextViaSocketsSpec: allMessagesReceived: "++)
 
 getCliSvrConns :: IO (Connection, Connection, MVar (Async a), MVar (Async a))
 getCliSvrConns = do
@@ -123,7 +137,7 @@ blockedOnSTM :: Selector BlockedIndefinitelyOnSTM
 blockedOnSTM = const True
 
 spec :: Spec
-spec = parallel $ do
+spec = do
     describe "Good weather messages reception:" $ do
         it "The client receives all the messages" $
             property clientReceivesAll
