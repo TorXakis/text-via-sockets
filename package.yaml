@@ -84,5 +84,7 @@ benchmarks:
 
     dependencies:
     - criterion
+    - async
+    - text
 
     - text-via-sockets

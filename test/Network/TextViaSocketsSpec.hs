@@ -3,8 +3,6 @@
 module Network.TextViaSocketsSpec where
 
 import           Control.Concurrent
-import           Control.Monad
-import           Data.Foldable
 import           Data.Text (Text)
 import           Network.Socket hiding (close)
 import           Control.Exception.Base hiding (assert)
@@ -50,12 +48,6 @@ sndRcvProc conn howMany svrMsgs aTV =
           cancel a
           throwIO ex
 
-sendMsgs :: Connection -> [Text] -> IO ()
-sendMsgs conn = traverse_ (putLineTo conn)
-
-receiveMsgs :: Connection -> Int -> IO [Text]
-receiveMsgs conn howMany = replicateM howMany (getLineFrom conn)
-
 checkMessages :: Either a (Either Timeout [Text]) -> [Text] -> PropertyM IO ()
 checkMessages (Left _) _ = monitor $ collect ("Address in use." :: String)
 checkMessages (Right (Left Timeout)) _ = monitor $ collect ("Timeout." :: String)
@@ -68,13 +60,6 @@ checkMessages (Right (Right msgs)) expected =
         run $ print msgs
         run $ print expected
         assert False
-
-waitCatchTimeout :: Async a -> IO (Either SomeException a)
-waitCatchTimeout act = do
-    eEres <- timeout `race` waitCatch act
-    case eEres of
-        Left Timeout -> throwIO $ userError "Timeout"
-        Right eRes -> return eRes
 
 allMessagesReceived :: [PrintableString] -- ^ Messages to be sent to the client.
                     -> [PrintableString] -- ^ Messages to be sent to the server.
@@ -92,8 +77,8 @@ allMessagesReceived strsCli strsSvr = monadicIO $ do
     run $ putMVar aSvrTV aSvr    
     -- Wait for the results
     debug "Waiting for the results."
-    resCli <- run $ waitCatchTimeout aCli
-    resSvr <- run $ waitCatchTimeout aSvr
+    resCli <- run $ waitCatch aCli
+    resSvr <- run $ waitCatch aSvr
     -- Close the connections
     debug "Closing the connections."
     run $ close cliConn
@@ -103,8 +88,10 @@ allMessagesReceived strsCli strsSvr = monadicIO $ do
     checkMessages resCli msgsCli
     checkMessages resSvr msgsSvr
     where
-      msgsCli = map (T.pack . getPrintableString) strsCli
-      msgsSvr = map (T.pack . getPrintableString) strsSvr
+      strsCliF = filter ((/= "\n") . getPrintableString) strsCli
+      strsSvrF = filter ((/= "\n") . getPrintableString) strsSvr      
+      msgsCli = map (T.pack . getPrintableString) strsCliF
+      msgsSvr = map (T.pack . getPrintableString) strsSvrF
       debug = run . traceIO . ("TextViaSocketsSpec: allMessagesReceived: "++)
 
 getCliSvrConns :: IO (Connection, Connection, MVar (Async a), MVar (Async a))

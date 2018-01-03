@@ -25,7 +25,9 @@ module Network.TextViaSockets
     , getFreeSocket
     -- * Sending and receiving data
     , getLineFrom
+    , receiveMsgs
     , putLineTo
+    , sendMsgs
     -- * Closing the connection
     , close
     ) where
@@ -203,11 +205,19 @@ mkConnection sock mServerSock = do
 getLineFrom :: Connection -> IO Text
 getLineFrom Connection {linesTQ} = atomically $ readTQueue linesTQ
 
+-- | Send a list of messages.
+sendMsgs :: Connection -> [Text] -> IO ()
+sendMsgs conn = traverse_ (putLineTo conn)
+
 -- | Put a text line onto the given connection.
 putLineTo :: Connection -> Text -> IO ()
 putLineTo Connection {connSock} text = do
     let textEol = T.snoc text '\n'
     sendAll connSock (encodeUtf8 textEol)
+
+-- | Receive `n` messages.
+receiveMsgs :: Connection -> Int -> IO [Text]
+receiveMsgs conn howMany = replicateM howMany (getLineFrom conn)
 
 -- | Close the connection.
 close :: Connection -> IO ()
@@ -219,6 +229,7 @@ close Connection{connSock, serverSock, socketReaderTid} = do
     traceIO $ "TextViaSockets: Closing server socket " ++ show serverSock
     traverse_ closeIfOpen serverSock
     killThread socketReaderTid
+    traceIO $ "TextViaSockets: Connection closed"
     where
       closeIfOpen sock = do
           let MkSocket _ _ _ _ stMV = sock
