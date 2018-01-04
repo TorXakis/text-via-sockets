@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 module Network.TextViaSocketsSpec where
 
@@ -114,7 +113,7 @@ timeout = do
     threadDelay t
     return Timeout
     where t :: Int
-          t = 3 * (10 :: Int) ^ (6 :: Int)
+          t = 3 * 10 ^ (6 :: Int)
 
 serverReveivesAll :: [PrintableString] -> Property
 serverReveivesAll =
@@ -133,10 +132,6 @@ spec = do
         it "The server and client receive all the messages" $
             property allMessagesReceived
     describe "Closing:" $ do
-        it "The client and server can be closed" $ do
-            (cliConn, svrConn, _, _) <- getCliSvrConns
-            close cliConn
-            close svrConn
         it "The same port can be used after a connection is closed" $ do
             let simpleTest = do
                     a <- async $ do

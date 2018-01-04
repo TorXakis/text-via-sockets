@@ -1,5 +1,4 @@
 {-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE CPP #-}
 
 -----------------------------------------------------------------------------
@@ -32,30 +31,30 @@ module Network.TextViaSockets
     , close
     ) where
 
-import Network.Socket hiding (recv, close, send)
+import           Network.Socket hiding (recv, close, send)
 import qualified Network.Socket as Socket
-import Network.Socket.ByteString
-import Data.Text (Text)
+import           Network.Socket.ByteString
+import           Data.Text (Text)
 import qualified Data.Text as T
-import Data.Text.Encoding
-import Control.Monad
-import Control.Concurrent
-import Control.Concurrent.STM.TQueue
-import Control.Concurrent.STM
-import Data.Maybe
-import Data.Text.Encoding.Error
-import Data.ByteString (ByteString)
+import           Data.Text.Encoding
+import           Control.Monad
+import           Control.Concurrent
+import           Control.Concurrent.STM.TQueue
+import           Control.Concurrent.STM
+import           Data.Maybe
+import           Data.Text.Encoding.Error
+import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
-import Control.Exception.Base
-import Data.Foldable
-import Control.Retry
-import Control.Monad.Catch (Handler)
-import Data.Monoid
+import           Control.Exception.Base
+import           Data.Foldable
+import           Control.Retry
+import           Control.Monad.Catch (Handler)
+import           Data.Monoid
     
 #ifdef DEBUG
-import Debug.Trace
+import           Debug.Trace
 #else
-import Debug.NoTrace
+import           Debug.NoTrace
 #endif
 
 -- | A connection for sending and receiving @Text@ lines.
@@ -176,9 +175,13 @@ mkConnection sock mServerSock = do
                         let Some text _ g = f' msg
                         rest <- putLines lTQ text acc'
                         doRead rest g
+                -- The reader must continue trying to read, even in the
+                -- presence of asynchronous exceptions.
                 handler :: IOException -> IO ()
-                handler _ = return () -- TODO: for now we're not notifying that the reader has died.
-
+                handler _ = do
+                    threadDelay $ 5 * 10 ^ (5 :: Int) -- Wait before retrying.
+                    return ()
+ 
       -- | If a new-line is found in @text@, put @text@ together with the
       -- remainder date in @acc@ as one line in @lTQ@. The buffer @acc@ stores
       -- the line fragments as a stack, so it is necessary to reverse this list

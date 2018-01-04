@@ -38,6 +38,9 @@ ghc-options:
   - -Werror
   - -Wall
 
+default-extensions:
+- OverloadedStrings
+
 flags:
   debug:
     description: Enable debug
@@ -52,7 +55,7 @@ tests:
   text-via-sockets-test:
     main:                Spec.hs
     source-dirs:
-      - test
+    - test
     ghc-options:
     - -threaded
     - -rtsopts
@@ -60,7 +63,6 @@ tests:
     - -Werror
     - -Wall
     - -O
-
     dependencies:
     - hspec
     - QuickCheck
@@ -68,6 +70,25 @@ tests:
     - async
 
     - text-via-sockets
+
+  no-resources-leak-test:
+    main:                Main.hs
+    source-dirs:
+    - test/endurance/no-resources-leak
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -with-rtsopts=-T
+    - -Werror
+    - -Wall
+    - -O
+    dependencies:
+    - async
+    - ekg
+
+    - text-via-sockets
+
 
 benchmarks:
   text-via-sockets-bench:
@@ -81,7 +102,6 @@ benchmarks:
     - -Werror
     - -Wall
     - -O
-
     dependencies:
     - criterion
     - async
