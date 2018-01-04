@@ -38,8 +38,9 @@ See the [`test`](test/) folder for examples of usage of this library.
 
 ## Performance
 
-Here are some benchmark results on Linux, which compare the performance of
-this library against using the `hPutLine` and `hGetLine` functions:
+Here are some benchmark results on a Linux machine, which compare the
+performance of this library against using the `hPutLine` and `hGetLine`
+functions:
 
 ```text
 enchmarking Text: Lorem Ipsum.
@@ -70,6 +71,42 @@ mean                 494.2 ms   (432.2 ms .. 554.1 ms)
 std dev              101.9 ms   (0.0 s .. 103.7 ms)
 variance introduced by outliers: 48% (moderately inflated)
 ```
+
+And here are the benchmarks run on a Windows machine:
+
+```text
+Benchmark text-via-sockets-bench: RUNNING...
+benchmarking Text: Lorem Ipsum.
+time                 2.240 ms   (1.077 ms .. 4.253 ms)
+                     0.254 R²   (0.224 R² .. 0.997 R²)
+mean                 1.567 ms   (1.121 ms .. 2.819 ms)
+std dev              1.855 ms   (37.08 us .. 3.613 ms)
+variance introduced by outliers: 98% (severely inflated)
+
+benchmarking Text: Lorem Ipsum x100.
+time                 8.191 ms   (8.070 ms .. 8.343 ms)
+                     0.998 R²   (0.996 R² .. 0.999 R²)
+mean                 8.191 ms   (8.092 ms .. 8.290 ms)
+std dev              262.7 us   (201.4 us .. 375.3 us)
+variance introduced by outliers: 11% (moderately inflated)
+
+benchmarking String: Lorem Ipsum.
+time                 50.56 ms   (49.41 ms .. 51.60 ms)
+                     0.998 R²   (0.996 R² .. 1.000 R²)
+mean                 51.32 ms   (50.50 ms .. 52.10 ms)
+std dev              1.429 ms   (1.120 ms .. 1.882 ms)
+
+benchmarking String: Lorem Ipsum x100.
+time                 2.039 s    (2.016 s .. 2.083 s)
+                     1.000 R²   (1.000 R² .. 1.000 R²)
+mean                 2.013 s    (2.010 s .. 2.015 s)
+std dev              2.892 ms   (0.0 s .. 2.987 ms)
+variance introduced by outliers: 19% (moderately inflated)
+```
+
+Not surprisingly, on Linux `text-via-sockets` is about 23 (494 / 21) times
+faster than using the `String` functions, and on Windows it is about 250
+(2000/8) times faster.
 
 ## Debugging
 
