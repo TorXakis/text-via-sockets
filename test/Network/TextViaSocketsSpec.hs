@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP #-}
-module Network.TextViaSocketsSpec where
+module Network.TextViaSocketsSpec (spec) where
 
 import           Control.Concurrent
 import           Data.Text (Text)
@@ -118,9 +118,6 @@ timeout = do
 serverReveivesAll :: [PrintableString] -> Property
 serverReveivesAll =
     allMessagesReceived []
-
-blockedOnSTM :: Selector BlockedIndefinitelyOnSTM
-blockedOnSTM = const True
 
 spec :: Spec
 spec = do
