@@ -100,6 +100,9 @@ retryCnect act = recovering connectRetryPolicy [ioExceptionHandler] (const act)
 -- | Accept byte-streams by serving on the given port number. This function
 -- will block until a client connects to the server.
 --
+-- If the connection cannot be established, this action will be retried using
+-- an exponential back-off strategy, until the maximum number of tries is
+-- reached.
 acceptOn :: PortNumber -> IO Connection
 acceptOn p = retryCnect $ do
     sock <- socket AF_INET Stream 0
@@ -130,6 +133,9 @@ getFreeSocket = retryCnect $ do
 
 -- | Connect to the given host and service name (usually a port number).
 --
+-- If the connection cannot be established, this action will be retried using
+-- an exponential back-off strategy, until the maximum number of tries is
+-- reached.
 connectTo :: HostName -> ServiceName -> IO Connection
 connectTo hn sn = withSocketsDo $ retryCnect $ do
     -- Open the socket.
